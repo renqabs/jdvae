@@ -139,7 +139,6 @@ def verify_app_secret(credentials: HTTPAuthorizationCredentials = Depends(securi
         raise HTTPException(status_code=403, detail="Invalid APP_SECRET")
     return credentials.credentials
 
-@app.options("/hf/v1/images/generations")
 @app.options("/hf/v1/chat/completions")
 async def chat_completions_options():
     return Response(
@@ -160,7 +159,6 @@ def replace_escaped_newlines(input_string: str) -> str:
 async def list_models():
     return {"object": "list", "data": ALLOWED_MODELS}
 
-@app.post("/hf/v1/images/generations")
 @app.post("/hf/v1/chat/completions")
 async def chat_completions(
     request: ChatRequest, app_secret: str = Depends(verify_app_secret)
