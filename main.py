@@ -176,13 +176,13 @@ async def chat_completions(
         'action': 'sendmessage',
         'model': request.model,
         'messages': [
-            {"role": msg.role, "content": msg.content}
+            {"role": msg.role, "content": [{"type": "text", "text": msg.content}]}
             for msg in request.messages
         ],
         'temperature': request.temperature,
-        'language': 'zh',
         'returnTokensUsage': True,
-        'chatId': str(uuid.uuid4())
+        'botId': '',
+        'stream': True,
     }
 
     async def generate():
@@ -191,12 +191,9 @@ async def chat_completions(
                 async with client.stream('POST', BASE_URL_, headers=headers_, json=json_data, timeout=120.0) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
-                        if 'delta' in line:
-                            choices0 = json.loads(line[6:])["choices"][0]
-                            finish_reason = choices0.get("finish_reason")
-                            content = choices0["delta"]
-                            if finish_reason != "stop":
-                                yield f"data: {json.dumps(create_chat_completion_data(content['content'], request.model))}\n\n"
+                        if line.startswith('0:'):
+                            content = line[2:].strip('"')
+                            yield f"data: {json.dumps(create_chat_completion_data(content, request.model))}\n\n"
                     yield f"data: {json.dumps(create_chat_completion_data('', request.model, 'stop'))}\n\n"
                     yield "data: [DONE]\n\n"
             except httpx.HTTPStatusError as e:
