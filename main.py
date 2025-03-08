@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 app = FastAPI()
 BASE_URL = "https://openai.jadve.com/chatgpt"
-jadve_authorization = os.getenv("jadve_authorization","")
 
 headers = {
     'accept': '*/*',
@@ -44,21 +43,15 @@ headers = {
     'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
     #'x-authorization': f'Bearer {jadve_authorization}'
 }
-headers_img = {
-    'accept': '*/*',
-    'accept-language': 'en',
-    'authorization': f'Bearer {jadve_authorization}',
-    'content-type': 'application/json',
-    'origin': 'https://jadve.com',
-    'referer': 'https://jadve.com/',
-    'x-authorization': f'Bearer {jadve_authorization}'
-}
+
 APP_SECRET = os.getenv("APP_SECRET","666")
 
 ALLOWED_MODELS = [
+    {"id": "o1-preview", "name": "o1-preview"},
+    {"id": "o1-mini", "name": "o1-mini"},
     {"id": "gpt-4o", "name": "gpt-4o"},
     {"id": "gpt-4o-mini", "name": "gpt-4o-mini"},
-    {"id": "dall-e-3", "name": "dall-e-3"},
+    {"id": "claude-3-7-sonnet-20250219", "name": "claude-3-7-sonnet-20250219"},
 ]
 # 配置CORS
 app.add_middleware(
@@ -139,6 +132,7 @@ def verify_app_secret(credentials: HTTPAuthorizationCredentials = Depends(securi
         raise HTTPException(status_code=403, detail="Invalid APP_SECRET")
     return credentials.credentials
 
+
 @app.options("/hf/v1/chat/completions")
 async def chat_completions_options():
     return Response(
@@ -159,6 +153,7 @@ def replace_escaped_newlines(input_string: str) -> str:
 async def list_models():
     return {"object": "list", "data": ALLOWED_MODELS}
 
+
 @app.post("/hf/v1/chat/completions")
 async def chat_completions(
     request: ChatRequest, app_secret: str = Depends(verify_app_secret)
@@ -175,51 +170,35 @@ async def chat_completions(
     uuid_str = str(original_uuid).replace("-", "")
 
     # 使用 OpenAI API
-    if request.model == "dall-e-3":
-        BASE_URL_ = 'https://api.jadve.com/openai/generate-image'
-        headers_ = headers_img
-        json_data = {
-            'message': request.messages[len(request.messages)-1].content
-        }
-    else:
-        BASE_URL_ = BASE_URL
-        headers_ = headers
-        json_data = {
-            'action': 'sendmessage',
-            'model': request.model,
-            'messages': [
-                {"role": msg.role, "content": msg.content}
-                for msg in request.messages
-            ],
-            'temperature': request.temperature,
-            'language': 'zh',
-            'returnTokensUsage': True,
-            'chatId': str(uuid.uuid4())
-        }
+    BASE_URL_ = BASE_URL
+    headers_ = headers
+    json_data = {
+        'action': 'sendmessage',
+        'model': request.model,
+        'messages': [
+            {"role": msg.role, "content": msg.content}
+            for msg in request.messages
+        ],
+        'temperature': request.temperature,
+        'language': 'zh',
+        'returnTokensUsage': True,
+        'chatId': str(uuid.uuid4())
+    }
 
     async def generate():
         async with httpx.AsyncClient() as client:
             try:
-                if request.model == "dall-e-3":
-                    response = await client.post(BASE_URL_, headers=headers_, json=json_data,timeout=120.0)
-                    if 'revised_prompt' in response.text:
-                        img = response.json()["data"]["message"][0]
-                        revised_prompt = img["revised_prompt"]
-                        url = img["url"]
-                        markdown_url = f"\n ![{revised_prompt}]({url}) \n"
-                        yield f"data: {json.dumps(create_chat_completion_data(markdown_url, request.model))}\n\n"
-                else:
-                    async with client.stream('POST', BASE_URL_, headers=headers_, json=json_data, timeout=120.0) as response:
-                        response.raise_for_status()
-                        async for line in response.aiter_lines():
-                            if 'delta' in line:
-                                choices0 = json.loads(line[6:])["choices"][0]
-                                finish_reason = choices0.get("finish_reason")
-                                content = choices0["delta"]
-                                if finish_reason != "stop":
-                                    yield f"data: {json.dumps(create_chat_completion_data(content['content'], request.model))}\n\n"
-                        yield f"data: {json.dumps(create_chat_completion_data('', request.model, 'stop'))}\n\n"
-                        yield "data: [DONE]\n\n"
+                async with client.stream('POST', BASE_URL_, headers=headers_, json=json_data, timeout=120.0) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if 'delta' in line:
+                            choices0 = json.loads(line[6:])["choices"][0]
+                            finish_reason = choices0.get("finish_reason")
+                            content = choices0["delta"]
+                            if finish_reason != "stop":
+                                yield f"data: {json.dumps(create_chat_completion_data(content['content'], request.model))}\n\n"
+                    yield f"data: {json.dumps(create_chat_completion_data('', request.model, 'stop'))}\n\n"
+                    yield "data: [DONE]\n\n"
             except httpx.HTTPStatusError as e:
                 logger.error(f"HTTP error occurred: {e}")
                 raise HTTPException(status_code=e.response.status_code, detail=str(e))
