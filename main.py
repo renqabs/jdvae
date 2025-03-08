@@ -192,7 +192,7 @@ async def chat_completions(
                     response.raise_for_status()
                     async for line in response.aiter_lines():
                         if line.startswith('0:'):
-                            content = line[2:].strip('"')
+                            content = json.loads(line[2:])
                             yield f"data: {json.dumps(create_chat_completion_data(content, request.model))}\n\n"
                     yield f"data: {json.dumps(create_chat_completion_data('', request.model, 'stop'))}\n\n"
                     yield "data: [DONE]\n\n"
